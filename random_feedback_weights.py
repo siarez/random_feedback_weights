@@ -8,7 +8,7 @@ dtype = torch.FloatTensor
 # dtype = torch.cuda.FloatTensor # Uncomment this to run on GPU
 # N is batch size; D_in is input dimension;
 # H is hidden dimension; D_out is output dimension.
-training_set_size, D_in, H, D_out = 400, 28 * 28, 20, 10
+training_set_size, D_in, H, D_out = 40000, 28 * 28, 20, 10
 batch_size = 200
 testset_size = 2000
 randomWeights_path = "randomWeights"
@@ -40,8 +40,8 @@ def initializeWeights(fromFile=False):
 # preparing data
 mnist = fetch_mldata('MNIST original', data_home='./')
 
-learning_rate = 0.007
-epochs = 10
+learning_rate = 0.07
+epochs = 500
 
 # create a list of random indices for training set
 train_idx = np.random.choice(len(mnist.data), training_set_size, replace=False)
@@ -62,7 +62,7 @@ y_batches = torch.split(mnist_y, batch_size)
 y_onehot_batches = torch.split(y_onehot, batch_size)
 
 # Randomly initialize weights
-w1, w2 = initializeWeights(fromFile=True)
+w1, w2, w2_random = initializeWeights(fromFile=True)
 
 for t in range(epochs):
     num_of_batches = int(training_set_size / batch_size)
@@ -73,7 +73,7 @@ for t in range(epochs):
         h_biased = torch.cat((h, torch.ones([batch_size, 1])), 1)  # adding biases
         y_logits = h_biased.mm(w2)
         y_pred = sigmoid(y_logits)
-        if b == num_of_batches - 1 and t == epochs - 1:
+        if b == num_of_batches - 1:
             # Compute and print loss
             loss = (y_pred - y_onehot_batches[b]).pow(2).sum()
             print(t, loss)
@@ -83,38 +83,38 @@ for t in range(epochs):
         # calculate dLoss/dW2 = h*dh/dh_logits
         delta_y = torch.mul((y_pred - y_onehot_batches[b]), dSigmoid(y_pred))
         grad_w2 = h_biased.t().mm(delta_y)
-        dEdh = torch.mul(delta_y, w2[:-1, :])
+        dEdh = delta_y.mm(w2_random[:-1, :].t())
         delta_h = torch.mul(dEdh, dSigmoid(h))
         grad_w1 = x_batches[b].t().mm(delta_h)
         # Update weights using gradient descent
         w1 -= learning_rate * grad_w1
         w2 -= learning_rate * grad_w2
 
-    # Starting test
-    # removing samples that are present in training set
-    data_training_removed = np.delete(mnist.data, train_idx, 0)
-    target_training_removed = np.delete(mnist.target, train_idx, 0)
-    # picking test data
-    test_idx = np.random.choice(len(data_training_removed), testset_size)
-    test_x = np.array([data_training_removed[i] for i in test_idx])
-    test_x = torch.ByteTensor(test_x).type(dtype)
-    test_y = np.array([[target_training_removed[i] for i in test_idx]]).transpose()
-    test_y = torch.DoubleTensor(test_y).type(torch.LongTensor)
-    test_x = torch.cat((test_x, torch.ones([testset_size, 1])), 1)  # adding biases
-    # One hot encoding
-    test_y_onehot = torch.zeros([testset_size, D_out]).type(dtype)
-    test_y_onehot.scatter_(1, test_y, 1.0)
+# Starting test
+# removing samples that are present in training set
+data_training_removed = np.delete(mnist.data, train_idx, 0)
+target_training_removed = np.delete(mnist.target, train_idx, 0)
+# picking test data
+test_idx = np.random.choice(len(data_training_removed), testset_size)
+test_x = np.array([data_training_removed[i] for i in test_idx])
+test_x = torch.ByteTensor(test_x).type(dtype)
+test_y = np.array([[target_training_removed[i] for i in test_idx]]).transpose()
+test_y = torch.DoubleTensor(test_y).type(torch.LongTensor)
+test_x = torch.cat((test_x, torch.ones([testset_size, 1])), 1)  # adding biases
+# One hot encoding
+test_y_onehot = torch.zeros([testset_size, D_out]).type(dtype)
+test_y_onehot.scatter_(1, test_y, 1.0)
 
-    # Forward pass: compute predicted y
-    h_logits = test_x.mm(w1)
-    h = sigmoid(h_logits)
-    h_biased = torch.cat((h, torch.ones([testset_size, 1])), 1)  # adding biases
-    y_logits = h_biased.mm(w2)
-    y_pred = sigmoid(y_logits)
+# Forward pass: compute predicted y
+h_logits = test_x.mm(w1)
+h = sigmoid(h_logits)
+h_biased = torch.cat((h, torch.ones([testset_size, 1])), 1)  # adding biases
+y_logits = h_biased.mm(w2)
+y_pred = sigmoid(y_logits)
 
-    # Compute and print loss for testset
-    _, predicted_classes = torch.max(y_pred, dim=1)
-    accuracy = torch.sum(torch.eq(predicted_classes, test_y[:, 0])) / testset_size
-    #print('test accuracy: ', accuracy)
+# Compute and print loss for testset
+_, predicted_classes = torch.max(y_pred, dim=1)
+accuracy = torch.sum(torch.eq(predicted_classes, test_y[:, 0])) / testset_size
+print('test accuracy: ', accuracy)
 
 
