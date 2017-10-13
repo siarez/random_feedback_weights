@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import pickle
 import os
+import copy
 from matplotlib import pyplot as plt
 
 
@@ -38,7 +39,7 @@ x = torch.cat((mnist_x, torch.ones([training_set_size, 1])), 1)  # adding biases
 x_batches = torch.split(x, batch_size)
 y_batches = torch.split(mnist_y, batch_size)
 y_onehot_batches = torch.split(y_onehot, batch_size)
-losses = []
+losses = [[], []]
 
 # Setup plotting
 f, (ax1) = plt.subplots(1, 1, sharey=True)
@@ -77,11 +78,9 @@ def initialize_weights(fromFile=False):
 def calc_forward(input, w1, w2):
     """This function performs forward pass given `input`, `w1`, `w2`.
     It return class predictions and hidden layer values needed for back prop."""
-    hidden_logits = input.mm(w1)
-    hidden = sigmoid(hidden_logits)
+    hidden = sigmoid(input.mm(w1))
     hidden_biased = torch.cat((hidden, torch.ones([batch_size, 1])), 1)  # adding biases
-    predicions_logits = hidden_biased.mm(w2)
-    predictions = sigmoid(predicions_logits)
+    predictions = sigmoid(hidden_biased.mm(w2))
     return predictions, hidden_biased
 
 
@@ -98,6 +97,9 @@ def calc_backward(w2, hidden, prediction, target):
 
 # Randomly initialize weights
 w1, w2, w2_random = initialize_weights(fromFile=True)
+w1_experiment = w1.clone()
+w2_experiment = w2.clone()
+
 for t in range(epochs):
     num_of_batches = int(training_set_size / batch_size)
     for b in range(num_of_batches):
@@ -106,17 +108,31 @@ for t in range(epochs):
         if b == 0:
             # Compute and print loss
             loss = (y_pred - y_onehot_batches[b]).pow(2).sum()
-            losses.append(loss)
+            losses[0].append(loss)
             print(t, loss)
-            _, predicted_classes = torch.max(y_pred, dim=1)
-
         # Backprop to compute gradients of w1 and w2 with respect to loss
         grad_w1, grad_w2 = calc_backward(w2, h_biased, y_pred, y_onehot_batches[b])
         # Update weights using gradient descent
         w1 -= learning_rate * grad_w1
         w2 -= learning_rate * grad_w2
 
-ax1.plot(losses)
+        #doing forward and backward pass for the second network
+        # Forward pass: compute predicted y
+        y_pred, h_biased = calc_forward(x_batches[b], w1_experiment, w2_experiment)
+        if b == 0:
+            # Compute and print loss
+            loss = (y_pred - y_onehot_batches[b]).pow(2).sum()
+            losses[1].append(loss)
+            print(t, loss)
+        # Backprop to compute gradients of w1 and w2 with respect to loss
+        grad_w1, grad_w2 = calc_backward(w2_random, h_biased, y_pred, y_onehot_batches[b])
+        # Update weights using gradient descent
+        w1_experiment -= learning_rate * grad_w1
+        w2_experiment -= learning_rate * grad_w2
+
+normal_loss, = ax1.plot(losses[0], color='green', label='normal')
+random_loss, = ax1.plot(losses[1], color='orange', label='random w2')
+ax1.legend(handles=[normal_loss, random_loss])
 plt.show()
 
 # Starting test
