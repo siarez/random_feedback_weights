@@ -3,6 +3,8 @@ import torch
 import numpy as np
 import pickle
 import os
+from matplotlib import pyplot as plt
+
 
 dtype = torch.FloatTensor
 # dtype = torch.cuda.FloatTensor # Uncomment this to run on GPU
@@ -13,35 +15,11 @@ batch_size = 200
 testset_size = 2000
 randomWeights_path = "randomWeights"
 
-def sigmoid(logits):
-    return 1.0 / (1.0 + np.exp(-logits))
-
-def dSigmoid(h):
-    return np.multiply(h, 1 - h)
-
-def initializeWeights(fromFile=False):
-    """
-    This method generates randomized weights, and save them so they can be used later.
-    Save is used when we want to use the same random initializations weights between experiments.
-    :param fromFile: If True, weights are initialized from file.
-    :return: weight tensors
-    """
-    if fromFile == True and os.path.isfile(randomWeights_path):
-        w1, w2, w2_feedback = pickle.load(open(randomWeights_path, "rb"))
-
-    else:
-        # "+ 1"s are the bias terms
-        w1 = torch.randn(D_in + 1, H).type(dtype) / np.sqrt(D_in + 1)
-        w2 = torch.randn(H + 1, D_out).type(dtype) / np.sqrt(H + 1)
-        w2_feedback = torch.randn(H + 1, D_out).type(dtype) / np.sqrt(H + 1)
-        pickle.dump((w1, w2, w2_feedback), open(randomWeights_path, "wb"))
-    return w1, w2, w2_feedback
-
 # preparing data
 mnist = fetch_mldata('MNIST original', data_home='./')
 
 learning_rate = 0.07
-epochs = 500
+epochs = 50
 
 # create a list of random indices for training set
 train_idx = np.random.choice(len(mnist.data), training_set_size, replace=False)
@@ -60,35 +38,86 @@ x = torch.cat((mnist_x, torch.ones([training_set_size, 1])), 1)  # adding biases
 x_batches = torch.split(x, batch_size)
 y_batches = torch.split(mnist_y, batch_size)
 y_onehot_batches = torch.split(y_onehot, batch_size)
+losses = []
+
+# Setup plotting
+f, (ax1) = plt.subplots(1, 1, sharey=True)
+ax1.set_facecolor('black')
+f.set_dpi(200)
+
+
+
+def sigmoid(logits):
+    return 1.0 / (1.0 + np.exp(-logits))
+
+
+def dSigmoid(h):
+    return np.multiply(h, 1 - h)
+
+
+def initialize_weights(fromFile=False):
+    """
+    This method generates randomized weights, and save them so they can be used later.
+    Save is used when we want to use the same random initializations weights between experiments.
+    :param fromFile: If True, weights are initialized from file.
+    :return: weight tensors
+    """
+    if fromFile == True and os.path.isfile(randomWeights_path):
+        w1, w2, w2_feedback = pickle.load(open(randomWeights_path, "rb"))
+
+    else:
+        # "+ 1"s are the bias terms
+        w1 = torch.randn(D_in + 1, H).type(dtype) / np.sqrt(D_in + 1)
+        w2 = torch.randn(H + 1, D_out).type(dtype) / np.sqrt(H + 1)
+        w2_feedback = torch.randn(H + 1, D_out).type(dtype) / np.sqrt(H + 1)
+        pickle.dump((w1, w2, w2_feedback), open(randomWeights_path, "wb"))
+    return w1, w2, w2_feedback
+
+
+def calc_forward(input, w1, w2):
+    """This function performs forward pass given `input`, `w1`, `w2`.
+    It return class predictions and hidden layer values needed for back prop."""
+    hidden_logits = input.mm(w1)
+    hidden = sigmoid(hidden_logits)
+    hidden_biased = torch.cat((hidden, torch.ones([batch_size, 1])), 1)  # adding biases
+    predicions_logits = hidden_biased.mm(w2)
+    predictions = sigmoid(predicions_logits)
+    return predictions, hidden_biased
+
+
+def calc_backward(w2, hidden, prediction, target):
+    """This function takes in w2, layer activations, and target.
+     It returns gradients for weights"""
+    delta_prediction = torch.mul((prediction - target), dSigmoid(prediction))
+    gradient_w2 = hidden.t().mm(delta_prediction)
+    dError_dHidden = delta_prediction.mm(w2[:-1, :].t())
+    delta_hidden = torch.mul(dError_dHidden, dSigmoid(hidden[:, :-1]))
+    gradient_w1 = x_batches[b].t().mm(delta_hidden)
+    # Update weights using gradient descent
+    return gradient_w1, gradient_w2
 
 # Randomly initialize weights
-w1, w2, w2_random = initializeWeights(fromFile=True)
-
+w1, w2, w2_random = initialize_weights(fromFile=True)
 for t in range(epochs):
     num_of_batches = int(training_set_size / batch_size)
     for b in range(num_of_batches):
         # Forward pass: compute predicted y
-        h_logits = x_batches[b].mm(w1)
-        h = sigmoid(h_logits)
-        h_biased = torch.cat((h, torch.ones([batch_size, 1])), 1)  # adding biases
-        y_logits = h_biased.mm(w2)
-        y_pred = sigmoid(y_logits)
-        if b == num_of_batches - 1:
+        y_pred, h_biased = calc_forward(x_batches[b], w1, w2)
+        if b == 0:
             # Compute and print loss
             loss = (y_pred - y_onehot_batches[b]).pow(2).sum()
+            losses.append(loss)
             print(t, loss)
             _, predicted_classes = torch.max(y_pred, dim=1)
 
         # Backprop to compute gradients of w1 and w2 with respect to loss
-        # calculate dLoss/dW2 = h*dh/dh_logits
-        delta_y = torch.mul((y_pred - y_onehot_batches[b]), dSigmoid(y_pred))
-        grad_w2 = h_biased.t().mm(delta_y)
-        dEdh = delta_y.mm(w2_random[:-1, :].t())
-        delta_h = torch.mul(dEdh, dSigmoid(h))
-        grad_w1 = x_batches[b].t().mm(delta_h)
+        grad_w1, grad_w2 = calc_backward(w2, h_biased, y_pred, y_onehot_batches[b])
         # Update weights using gradient descent
         w1 -= learning_rate * grad_w1
         w2 -= learning_rate * grad_w2
+
+ax1.plot(losses)
+plt.show()
 
 # Starting test
 # removing samples that are present in training set
