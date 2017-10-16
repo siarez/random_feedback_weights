@@ -9,18 +9,18 @@ from matplotlib import pyplot as plt
 import csv
 import time
 
-dtype = torch.FloatTensor
+#dtype = torch.FloatTensor
+dtype = torch.cuda.FloatTensor # Uncomment this to run on GPU
 # loads data or downloads if necessary
 mnist = fetch_mldata('MNIST original', data_home='./')
 
 
 class Configs:
-    # dtype = torch.cuda.FloatTensor # Uncomment this to run on GPU
     # N is batch size; D_in is input dimension;
     # H is hidden dimension; D_out is output dimension.
     training_set_size, D_in, H, D_out = 50000, 28 * 28, 20, 10
     batch_size = 200
-    testset_size = 2000
+    testset_size = 20000
     learning_rate = 0.07
     epochs = 200
     randomWeights_path = "randomWeights"
@@ -57,13 +57,13 @@ def create_dataset(dataset, set_size, one_hot_size, indices_to_exclude=None):
     mnist_x = np.array([_data[i] for i in indices])
     mnist_x = torch.ByteTensor(mnist_x).type(dtype)
     mnist_y = np.array([[_target[i] for i in indices]]).transpose()
-    mnist_y = torch.DoubleTensor(mnist_y).type(torch.LongTensor)
+    mnist_y = torch.DoubleTensor(mnist_y).type(torch.cuda.LongTensor)
 
     # One hot encoding
     _y_onehot = torch.zeros([set_size, one_hot_size]).type(dtype)
-    _y_onehot.scatter_(1, mnist_y, 1.0)
+    _y_onehot.scatter_(1, mnist_y, 1.0).type(dtype)
     mnist_x /= 255  # scaling down x to fall between 0 and 1
-    _x = torch.cat((mnist_x, torch.ones([set_size, 1])), 1)  # adding biases
+    _x = torch.cat((mnist_x, torch.ones([set_size, 1]).type(dtype)), 1)  # adding biases
     return _x, _y_onehot, indices
 
 
@@ -106,7 +106,7 @@ def calc_forward(_input, _w1, _w2):
     """This function performs forward pass given `input`, `w1`, `w2`.
     It return class predictions and hidden layer values needed for back prop."""
     hidden = sigmoid(_input.mm(_w1))
-    hidden_biased = torch.cat((hidden, torch.ones([_input.shape[0], 1])), 1)  # adding biases
+    hidden_biased = torch.cat((hidden, torch.ones([_input.shape[0], 1]).type(dtype)), 1)  # adding biases
     predictions = sigmoid(hidden_biased.mm(_w2))
     return predictions, hidden_biased
 
@@ -130,7 +130,7 @@ if not os.path.exists(result_folder_path):
 with open(os.path.join(result_folder_path, "config.txt"), 'w') as file:
     file.write(str(Configs()))
 
-for expr in range(30):
+for expr in range():
     # Setup plotting
     f, (ax1) = plt.subplots(1, 1, sharey=True)
     ax1.set_facecolor('black')
@@ -148,7 +148,6 @@ for expr in range(30):
     for t in range(Configs.epochs):
         num_of_batches = int(Configs.training_set_size / Configs.batch_size)
         for b in range(num_of_batches):
-
             # doing forward and backward pass for the second network
             # Forward pass: compute predicted y
             y_pred_expr, h_biased_expr = calc_forward(x_training_batches[b], w1_experiment, w2_experiment)
@@ -158,7 +157,7 @@ for expr in range(30):
                 losses[1].append(loss)
                 print(t, loss)
             # Backprop to compute gradients of w1 and w2 with respect to loss
-            grad_w1_expr, grad_w2_expr = calc_backward(w2_random * math.log(t+1), x_training_batches[b], h_biased_expr, y_pred_expr, y_training_batches[b])
+            grad_w1_expr, grad_w2_expr = calc_backward(w2_random * math.log(t+np.e), x_training_batches[b], h_biased_expr, y_pred_expr, y_training_batches[b])
             # Update weights using gradient descent
             w1_experiment -= Configs.learning_rate * grad_w1_expr
             w2_experiment -= Configs.learning_rate * grad_w2_expr
